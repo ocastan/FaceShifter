@@ -10,15 +10,17 @@ import time
 import torchvision
 import cv2
 from apex import amp
-import visdom
+#import visdom
+from torch.utils.tensorboard import SummaryWriter
 
 
-vis = visdom.Visdom(server='127.0.0.1', env='faceshifter', port=8099)
-batch_size = 16
+#vis = visdom.Visdom(server='127.0.0.1', env='faceshifter', port=8099)
+writer = SummaryWriter('runs/FaceShifter')
+batch_size = 6
 lr_G = 4e-4
 lr_D = 4e-4
 max_epoch = 2000
-show_step = 10
+show_step = 30
 save_epoch = 1
 model_save_path = './saved_models/'
 optim_level = 'O1'
@@ -53,7 +55,8 @@ except Exception as e:
     # dataset = FaceEmbed(['../celeb-aligned-256_0.85/', '../ffhq_256_0.85/', '../vgg_256_0.85/', '../stars_256_0.85/'], same_prob=0.5)
 # else:
     # dataset = With_Identity('../washed_img/', 0.8)
-dataset = FaceEmbed(['../celeb-aligned-256_0.85/', '../ffhq_256_0.85/', '../vgg_256_0.85/', '../stars_256_0.85/'], same_prob=0.8)
+FaceSources = ['/home/olivier/Images/FaceShifter/celeba-256/', '/home/olivier/Images/FaceShifter/Perso/', '/home/olivier/Images/FaceShifter/VGGFaceTrain/', '/home/olivier/Images/FaceShifter/CuckSesFree/', '/home/olivier/Images/FaceShifter/FFHQ/']
+dataset = FaceEmbed(FaceSources, same_prob=0.8)
 
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
 
@@ -89,6 +92,7 @@ print(torch.backends.cudnn.benchmark)
 for epoch in range(0, max_epoch):
     # torch.cuda.empty_cache()
     for iteration, data in enumerate(dataloader):
+        niter = epoch * len(dataloader) + iteration
         start_time = time.time()
         Xs, Xt, same_person = data
         Xs = Xs.to(device)
@@ -154,8 +158,16 @@ for epoch in range(0, max_epoch):
         batch_time = time.time() - start_time
         if iteration % show_step == 0:
             image = make_image(Xs, Xt, Y)
-            vis.image(image[::-1, :, :], opts={'title': 'result'}, win='result')
-            cv2.imwrite('./gen_images/latest.jpg', image.transpose([1,2,0]))
+            #vis.image(image[::-1, :, :], opts={'title': 'result'}, win='result')
+            #cv2.imwrite('./gen_images/latest.jpg', image.transpose([1,2,0]))
+            writer.add_image('Train/Xs Xt Y', image[::-1, :, :], niter)
+            writer.add_scalars('Train/Generator losses',
+                    {'L_adv': L_adv.item(), 'L_id': L_id.item(),
+                        'L_attr': L_attr.item(), 'L_rec': L_rec.item()},
+                    niter)
+            writer.add_scalars('Train/Adversarial losses',
+                    {'Generator': lossG.item(), 'Discriminator': lossD.item()},
+                    niter)
         print(f'epoch: {epoch}    {iteration} / {len(dataloader)}')
         print(f'lossD: {lossD.item()}    lossG: {lossG.item()} batch_time: {batch_time}s')
         print(f'L_adv: {L_adv.item()} L_id: {L_id.item()} L_attr: {L_attr.item()} L_rec: {L_rec.item()}')
