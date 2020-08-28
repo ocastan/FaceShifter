@@ -14,11 +14,13 @@ class FaceEmbed(TensorDataset):
         datasets = []
         # embeds = []
         self.N = []
+        self.size = 0
         self.same_prob = same_prob
         for data_path in data_path_list:
             image_list = glob.glob(f'{data_path}/*.*g')
             datasets.append(image_list)
             self.N.append(len(image_list))
+            self.size += len(image_list)
             # with open(f'{data_path}/embed.pkl', 'rb') as f:
             #     embed = pickle.load(f)
             #     embeds.append(embed)
@@ -42,7 +44,15 @@ class FaceEmbed(TensorDataset):
         Xs = Image.fromarray(Xs)
 
         if random.random() > self.same_prob:
-            image_path = random.choice(self.datasets[random.randint(0, len(self.datasets)-1)])
+            #image_path = random.choice(self.datasets[random.randint(0, len(self.datasets)-1)])
+            itemt = item
+            while itemt == item:
+                itemt = random.randint(0, self.size - 1)
+            idx = 0
+            while itemt >= self.N[idx]:
+                itemt -= self.N[idx]
+                idx += 1
+            image_path = self.datasets[idx][itemt]
             Xt = cv2.imread(image_path)
             Xt = Image.fromarray(Xt)
             same_person = 0
