@@ -55,10 +55,10 @@ except Exception as e:
     # dataset = FaceEmbed(['../celeb-aligned-256_0.85/', '../ffhq_256_0.85/', '../vgg_256_0.85/', '../stars_256_0.85/'], same_prob=0.5)
 # else:
     # dataset = With_Identity('../washed_img/', 0.8)
-FaceSources = ['/home/olivier/Images/FaceShifter/celeba-256/', '/home/olivier/Images/FaceShifter/Perso/', '/home/olivier/Images/FaceShifter/VGGFaceTrain/', '/home/olivier/Images/FaceShifter/CuckSesFree/', '/home/olivier/Images/FaceShifter/FFHQ/']
-dataset = FaceEmbed(FaceSources, same_prob=0.8)
+FaceSources = ['/home/olivier/Images/FaceShifter/celeba-256/', '/home/olivier/Images/FaceShifter/Perso/', '/home/olivier/Images/FaceShifter/VGGFaceTrain/', '/home/olivier/Images/FaceShifter/FFHQ/']
+dataset = FaceEmbed(FaceSources, same_prob=0.2)
 
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
 
 
 MSE = torch.nn.MSELoss()
@@ -88,7 +88,8 @@ def make_image(Xs, Xt, Y):
 # prior = torch.FloatTensor(cv2.imread('./prior.png', 0).astype(np.float)/255).to(device)
 
 print(torch.backends.cudnn.benchmark)
-#torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.enabled = True
 for epoch in range(0, max_epoch):
     # torch.cuda.empty_cache()
     for iteration, data in enumerate(dataloader):
