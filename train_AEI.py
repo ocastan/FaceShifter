@@ -112,7 +112,8 @@ for epoch in range(0, max_epoch):
         L_adv = 0
 
         for di in Di:
-            L_adv += hinge_loss(di[0], True)
+            #L_adv += hinge_loss(di[0], True)
+            L_adv -= di[0].mean()
         
 
         Y_aligned = Y[:, :, 19:237, 19:237]
