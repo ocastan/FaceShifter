@@ -12,7 +12,7 @@ import cv2
 from apex import amp
 #import visdom
 from torch.utils.tensorboard import SummaryWriter
-
+from DiffAugment_pytorch import DiffAugment
 
 #vis = visdom.Visdom(server='127.0.0.1', env='faceshifter', port=8099)
 writer = SummaryWriter('runs/FaceShifter')
@@ -24,6 +24,7 @@ show_step = 30
 save_epoch = 1
 model_save_path = './saved_models/'
 optim_level = 'O1'
+policy = 'color'
 
 # fine_tune_with_identity = False
 
@@ -108,7 +109,7 @@ for epoch in range(0, max_epoch):
         opt_G.zero_grad()
         Y, Xt_attr = G(Xt, embed)
 
-        Di = D(Y)
+        Di = D(DiffAugment(Y, policy=policy))
         L_adv = 0
 
         for di in Di:
@@ -140,12 +141,12 @@ for epoch in range(0, max_epoch):
         opt_D.zero_grad()
         # with torch.no_grad():
         #     Y, _ = G(Xt, embed)
-        fake_D = D(Y.detach())
+        fake_D = D(DiffAugment(Y.detach(), policy=policy))
         loss_fake = 0
         for di in fake_D:
             loss_fake += hinge_loss(di[0], False)
 
-        true_D = D(Xs)
+        true_D = D(DiffAugment(Xs, policy=policy))
         loss_true = 0
         for di in true_D:
             loss_true += hinge_loss(di[0], True)
