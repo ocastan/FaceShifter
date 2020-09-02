@@ -13,6 +13,7 @@ from apex import amp
 #import visdom
 from torch.utils.tensorboard import SummaryWriter
 from DiffAugment_pytorch import DiffAugment
+import pickle
 
 #vis = visdom.Visdom(server='127.0.0.1', env='faceshifter', port=8099)
 writer = SummaryWriter('runs/FaceShifter')
@@ -39,6 +40,7 @@ D.train()
 arcface = Backbone(50, 0.6, 'ir_se').to(device)
 arcface.eval()
 arcface.load_state_dict(torch.load('./face_modules/model_ir_se50.pth', map_location=device), strict=False)
+arcface.requires_grad_(False)
 
 opt_G = optim.Adam(G.parameters(), lr=lr_G, betas=(0, 0.999))
 opt_D = optim.Adam(D.parameters(), lr=lr_D, betas=(0, 0.999))
@@ -49,6 +51,9 @@ D, opt_D = amp.initialize(D, opt_D, opt_level=optim_level)
 try:
     G.load_state_dict(torch.load('./saved_models/G_latest.pth', map_location=torch.device('cpu')), strict=False)
     D.load_state_dict(torch.load('./saved_models/D_latest.pth', map_location=torch.device('cpu')), strict=False)
+    opt_G.load_state_dict(torch.load('./saved_models/optG_latest.pth', map_location=torch.device('cpu')))
+    opt_D.load_state_dict(torch.load('./saved_models/optD_latest.pth', map_location=torch.device('cpu')))
+    amp.load_state_dict(torch.load('./saved_models/amp_latest.pth', map_location=torch.device('cpu')))
 except Exception as e:
     print(e)
 
@@ -101,11 +106,13 @@ for epoch in range(0, max_epoch):
         Xt = Xt.to(device)
         # embed = embed.to(device)
         with torch.no_grad():
-            embed, Xs_feats = arcface(F.interpolate(Xs[:, :, 19:237, 19:237], [112, 112], mode='bilinear', align_corners=True))
+            #embed, Xs_feats = arcface(F.interpolate(Xs[:, :, 19:237, 19:237], [112, 112], mode='bilinear', align_corners=True))
+            embed, _ = arcface(F.interpolate(Xs[:, :, 19:237, 19:237], [112, 112], mode='bilinear', align_corners=True))
         same_person = same_person.to(device)
         #diff_person = (1 - same_person)
 
         # train G
+        D.requires_grad_(False)
         opt_G.zero_grad()
         Y, Xt_attr = G(Xt, embed)
 
@@ -118,16 +125,19 @@ for epoch in range(0, max_epoch):
         
 
         Y_aligned = Y[:, :, 19:237, 19:237]
-        ZY, Y_feats = arcface(F.interpolate(Y_aligned, [112, 112], mode='bilinear', align_corners=True))
+        #ZY, Y_feats = arcface(F.interpolate(Y_aligned, [112, 112], mode='bilinear', align_corners=True))
+        ZY, _ = arcface(F.interpolate(Y_aligned, [112, 112], mode='bilinear', align_corners=True))
         L_id =(1 - torch.cosine_similarity(embed, ZY, dim=1)).mean()
 
         Y_attr = G.get_attr(Y)
         L_attr = 0
         for i in range(len(Xt_attr)):
-            L_attr += torch.mean(torch.pow(Xt_attr[i] - Y_attr[i], 2).reshape(batch_size, -1), dim=1).mean()
+            #L_attr += torch.mean(torch.pow(Xt_attr[i] - Y_attr[i], 2).reshape(batch_size, -1), dim=1).mean()
+            L_attr += torch.mean(torch.pow(Xt_attr[i] - Y_attr[i], 2))
         L_attr /= 2.0
 
-        L_rec = torch.sum(0.5 * torch.mean(torch.pow(Y - Xt, 2).reshape(batch_size, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)
+        #L_rec = torch.sum(0.5 * torch.mean(torch.pow(Y - Xt, 2).reshape(batch_size, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)
+        L_rec = MSE(Y[same_person], Xt[same_person]) * same_person.sum() /(2.0 * batch_size)
 
         lossG = 1*L_adv + 10*L_attr + 5*L_id + 10*L_rec
         # lossG = 1*L_adv + 10*L_attr + 5*L_id + 10*L_rec
@@ -138,6 +148,7 @@ for epoch in range(0, max_epoch):
         opt_G.step()
 
         # train D
+        D.requires_grad_(True)
         opt_D.zero_grad()
         # with torch.no_grad():
         #     Y, _ = G(Xt, embed)
@@ -177,5 +188,16 @@ for epoch in range(0, max_epoch):
         if iteration % 1000 == 0:
             torch.save(G.state_dict(), './saved_models/G_latest.pth')
             torch.save(D.state_dict(), './saved_models/D_latest.pth')
+            torch.save(opt_D.state_dict(), './saved_models/optG_latest.pth')
+            torch.save(opt_D.state_dict(), './saved_models/optD_latest.pth')
+            torch.save(amp.state_dict(), './saved_models/amp_latest.pth')
+            with open('./saved_models/niter.pkl', 'wb') as f:
+                pickle.dump(niter, f)
+        if (niter + 1) % 10000 == 0:
+            torch.save(G.state_dict(), f'./saved_models/G_iteration_{niter + 1}.pth')
+            torch.save(D.state_dict(), f'./saved_models/D_iteration_{niter + 1}.pth')
+            with open(f'./saved_models/niter_{niter + 1}.pkl', 'wb') as f:
+                pickle.dump(niter, f)
+
 
 
