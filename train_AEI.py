@@ -34,7 +34,9 @@ max_iter = 900000
 device = torch.device('cuda')
 # torch.set_num_threads(12)
 
-G = AEI_Net(c_id=512).to(device)
+#G = AEI_Net(c_id=512).to(device)
+mynorm = lambda x: torch.nn.GroupNorm(x // 16, x)
+G = AEI_Net(c_id=512, norm=mynorm).to(device)
 D = MultiscaleDiscriminator(input_nc=3, n_layers=6, norm_layer=torch.nn.InstanceNorm2d).to(device)
 G.train()
 D.train()
