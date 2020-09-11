@@ -30,14 +30,15 @@ policy = 'color'
 min_iter = 0
 max_iter = 900000
 
+
 # fine_tune_with_identity = False
 
 device = torch.device('cuda')
 # torch.set_num_threads(12)
 
-#G = AEI_Net(c_id=512).to(device)
-mynorm = lambda x: torch.nn.GroupNorm(x // 16, x)
-G = AEI_Net(c_id=512, norm=mynorm).to(device)
+G = AEI_Net(c_id=512).to(device)
+#mynorm = lambda x: torch.nn.GroupNorm(x // 16, x)
+#G = AEI_Net(c_id=512, norm=mynorm).to(device)
 D = MultiscaleDiscriminator(input_nc=3, n_layers=6, norm_layer=torch.nn.InstanceNorm2d).to(device)
 G.train()
 D.train()
@@ -172,8 +173,9 @@ for niter in range(min_iter, max_iter):
     opt_D.zero_grad()
     # with torch.no_grad():
     #     Y, _ = G(Xt, embed)
+    Xf = Y.detach()
     with autocast():
-        fake_D = D(DiffAugment(Y.detach(), policy=policy))
+        fake_D = D(DiffAugment(Xf, policy=policy))
         loss_fake = 0
         for di in fake_D:
             loss_fake += hinge_loss(di[0], False)
@@ -207,9 +209,9 @@ for niter in range(min_iter, max_iter):
         writer.add_scalars('Train/Adversarial losses',
                 {'Generator': lossG.item(), 'Discriminator': lossD.item()},
                 niter)
-    print(f'epoch: {epoch}    {iteration} / {len(train_dataloader)}')
-    print(f'lossD: {lossD.item()}    lossG: {lossG.item()} batch_time: {batch_time}s')
-    print(f'L_adv: {L_adv.item()} L_id: {L_id.item()} L_attr: {L_attr.item()} L_rec: {L_rec.item()}')
+    print(f'niter: {niter} (epoch: {epoch} {iteration}/{len(train_dataloader)})')
+    print(f'    lossD: {lossD.item()} lossG: {lossG.item()} batch_time: {batch_time}s')
+    print(f'    L_adv: {L_adv.item()} L_id: {L_id.item()} L_attr: {L_attr.item()} L_rec: {L_rec.item()}')
     if iteration % 1000 == 0:
         torch.save(G.state_dict(), './saved_models/G_latest.pth')
         torch.save(D.state_dict(), './saved_models/D_latest.pth')
