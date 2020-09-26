@@ -16,6 +16,8 @@ class FaceEmbed(TensorDataset):
         self.N = []
         self.size = 0
         self.same_prob = same_prob
+        self.generated = 0
+        self.same_generated = 0
         for data_path in data_path_list:
             image_list = glob.glob(f'{data_path}/*.*g')
             datasets.append(image_list)
@@ -44,7 +46,7 @@ class FaceEmbed(TensorDataset):
         Xs = cv2.imread(image_path)
         Xs = Image.fromarray(Xs)
 
-        if random.random() > self.same_prob:
+        if ((self.same_generated + 1) / (self.generated + 1)) > self.same_prob:
             #image_path = random.choice(self.datasets[random.randint(0, len(self.datasets)-1)])
             itemt = item
             while itemt == item:
@@ -60,6 +62,8 @@ class FaceEmbed(TensorDataset):
         else:
             Xt = Xs.copy()
             same_person = 1
+            self.same_generated += 1
+        self.generated += 1
         return self.transforms(Xs), self.transforms(Xt), same_person
 
     def __len__(self):
