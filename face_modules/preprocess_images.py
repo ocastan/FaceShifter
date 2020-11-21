@@ -7,11 +7,17 @@ import PIL.Image as Image
 from model import Backbone, Arcface, MobileFaceNet, Am_softmax, l2_norm
 from torchvision import transforms as trans
 import os
+import sys
 # import libnvjpeg
 # import pickle
 
-img_root_dir = '/media/taotao/958c7d2d-c4ce-4117-a93b-c8a7aa4b88e3/taotao/part1/'
-save_path = '/media/taotao/958c7d2d-c4ce-4117-a93b-c8a7aa4b88e3/taotao/stars_256_0.85/'
+if len(sys.argv) != 3:
+    print(f'Usage: {sys.argv[0]} img_root_dir save_path')
+    sys.exit()
+#img_root_dir = '/media/taotao/958c7d2d-c4ce-4117-a93b-c8a7aa4b88e3/taotao/part1/'
+img_root_dir = sys.argv[1]
+#save_path = '/media/taotao/958c7d2d-c4ce-4117-a93b-c8a7aa4b88e3/taotao/stars_256_0.85/'
+save_path = sys.argv[2]
 # embed_path = '/home/taotao/Downloads/celeb-aligned-256/embed.pkl'
 
 device = torch.device('cuda:0')
@@ -30,15 +36,17 @@ test_transform = trans.Compose([
 # decoder = libnvjpeg.py_NVJpegDecoder()
 
 ind = 0
-embed_map = {}
+#embed_map = {}
+if not os.path.isdir(save_path):
+    os.makedirs(save_path)
 
 for root, dirs, files in os.walk(img_root_dir):
     for name in files:
-        if name.endswith('jpg') or name.endswith('png'):
+        if name.lower().endswith('jpg') or name.lower().endswith('png'):
             try:
                 p = os.path.join(root, name)
                 img = cv2.imread(p)[:, :, ::-1]
-                faces = mtcnn.align_multi(Image.fromarray(img), min_face_size=64, crop_size=(256, 256))
+                faces = mtcnn.align_multi(Image.fromarray(img), min_face_size=200, crop_size=(256, 256))
                 if len(faces) == 0:
                     continue
                 for face in faces:
