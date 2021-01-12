@@ -84,17 +84,19 @@ class MLAttrEncoder(nn.Module):
 
 
 class AADGenerator(nn.Module):
-    def __init__(self, c_id=256):
+    def __init__(self, c_id=256, norm=nn.BatchNorm2d):
         super(AADGenerator, self).__init__()
-        self.up1 = nn.ConvTranspose2d(c_id, 1024, kernel_size=2, stride=1, padding=0)
-        self.AADBlk1 = AAD_ResBlk(1024, 1024, 1024, c_id)
-        self.AADBlk2 = AAD_ResBlk(1024, 1024, 2048, c_id)
-        self.AADBlk3 = AAD_ResBlk(1024, 1024, 1024, c_id)
-        self.AADBlk4 = AAD_ResBlk(1024, 512, 512, c_id)
-        self.AADBlk5 = AAD_ResBlk(512, 256, 256, c_id)
-        self.AADBlk6 = AAD_ResBlk(256, 128, 128, c_id)
-        self.AADBlk7 = AAD_ResBlk(128, 64, 64, c_id)
-        self.AADBlk8 = AAD_ResBlk(64, 3, 64, c_id)
+        # Disable bias since it is fed into a norm layer
+        #self.up1 = nn.ConvTranspose2d(c_id, 1024, kernel_size=2, stride=1, padding=0)
+        self.up1 = nn.ConvTranspose2d(c_id, 1024, kernel_size=2, stride=1, padding=0, bias=False)
+        self.AADBlk1 = AAD_ResBlk(1024, 1024, 1024, c_id, norm=norm)
+        self.AADBlk2 = AAD_ResBlk(1024, 1024, 2048, c_id, norm=norm)
+        self.AADBlk3 = AAD_ResBlk(1024, 1024, 1024, c_id, norm=norm)
+        self.AADBlk4 = AAD_ResBlk(1024, 512, 512, c_id, norm=norm)
+        self.AADBlk5 = AAD_ResBlk(512, 256, 256, c_id, norm=norm)
+        self.AADBlk6 = AAD_ResBlk(256, 128, 128, c_id, norm=norm)
+        self.AADBlk7 = AAD_ResBlk(128, 64, 64, c_id, norm=norm)
+        self.AADBlk8 = AAD_ResBlk(64, 3, 64, c_id, norm=norm, out_conv_bias=True)
 
         self.apply(weight_init)
 
@@ -112,10 +114,10 @@ class AADGenerator(nn.Module):
 
 
 class AEI_Net(nn.Module):
-    def __init__(self, c_id=256, norm=nn.BatchNorm2d):
+    def __init__(self, c_id=256, encoder_norm=nn.BatchNorm2d, aad_norm=nn.BatchNorm2d):
         super(AEI_Net, self).__init__()
-        self.encoder = MLAttrEncoder(norm)
-        self.generator = AADGenerator(c_id)
+        self.encoder = MLAttrEncoder(encoder_norm)
+        self.generator = AADGenerator(c_id, norm=aad_norm)
 
     def forward(self, Xt, z_id):
         attr = self.encoder(Xt)
@@ -125,6 +127,3 @@ class AEI_Net(nn.Module):
     def get_attr(self, X):
         # with torch.no_grad():
         return self.encoder(X)
-
-
-

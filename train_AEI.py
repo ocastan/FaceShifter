@@ -1,6 +1,6 @@
 from network.AEI_Net import *
 from network.MultiscaleDiscriminator import *
-from utils.Dataset import FaceEmbed, With_Identity
+from utils.Dataset import FaceEmbed
 from torch.utils.data import DataLoader
 import torch.optim as optim
 from face_modules.model import Backbone, Arcface, MobileFaceNet, Am_softmax, l2_norm
@@ -17,23 +17,26 @@ import pickle
 from torch.cuda.amp import autocast, GradScaler
 
 #vis = visdom.Visdom(server='127.0.0.1', env='faceshifter', port=8099)
-batch_size = 9
-lr_G = 1e-4
+batch_size = 11
+lr_G = 4e-4
 lr_D = 4e-4
-max_epoch = 2000
 show_step = 50
 save_epoch = 1
 model_save_path = './saved_models/'
 optim_level = 'O1'
-policy = 'color'
 min_iter = 0
-max_iter = 900000
+max_iter = 2000000
+C_adv = 1.0
+C_id = 5.0
+C_attr = 10.0
+C_rec = 10.0
 
 device = torch.device('cuda')
 
-G = AEI_Net(c_id=512).to(device)
+G = AEI_Net(c_id=512, aad_norm=torch.nn.BatchNorm2d,
+            encoder_norm=torch.nn.BatchNorm2d).to(device)
 #mynorm = lambda x: torch.nn.GroupNorm(x // 16, x)
-#G = AEI_Net(c_id=512, norm=mynorm).to(device)
+#G = AEI_Net(c_id=512, encoder_norm=mynorm, aad_norm=mynorm).to(device)
 D = MultiscaleDiscriminator(input_nc=3, n_layers=6, norm_layer=torch.nn.InstanceNorm2d).to(device)
 G.train()
 D.train()
@@ -49,21 +52,21 @@ opt_D = optim.Adam(D.parameters(), lr=lr_D, betas=(0, 0.999))
 scaler = GradScaler()
 
 try:
-    G.load_state_dict(torch.load('./saved_models/G_latest.pth', map_location=torch.device('cpu')), strict=False)
-    D.load_state_dict(torch.load('./saved_models/D_latest.pth', map_location=torch.device('cpu')), strict=False)
-    opt_G.load_state_dict(torch.load('./saved_models/optG_latest.pth', map_location=torch.device('cpu')))
-    opt_D.load_state_dict(torch.load('./saved_models/optD_latest.pth', map_location=torch.device('cpu')))
-    scaler.load_state_dict(torch.load('./saved_models/scaler_latest.pth', map_location=torch.device('cpu')))
+    G.load_state_dict(torch.load('./saved_models/AEI_G_latest.pth', map_location=torch.device('cpu')), strict=False)
+    D.load_state_dict(torch.load('./saved_models/AEI_D_latest.pth', map_location=torch.device('cpu')), strict=False)
+    opt_G.load_state_dict(torch.load('./saved_models/AEI_optG_latest.pth', map_location=torch.device('cpu')))
+    opt_D.load_state_dict(torch.load('./saved_models/AEI_optD_latest.pth', map_location=torch.device('cpu')))
+    scaler.load_state_dict(torch.load('./saved_models/AEI_scaler_latest.pth', map_location=torch.device('cpu')))
 except Exception as e:
     print(e)
 try:
-    with open('./saved_models/niter.pkl', 'rb') as f:
+    with open('./saved_models/AEI_niter.pkl', 'rb') as f:
         min_iter = pickle.load(f)
 except Exception as e:
     print(e)
-writer = SummaryWriter('runs/FaceShifter', purge_step=min_iter)
+writer = SummaryWriter('runs/FaceShifterAEInet', purge_step=min_iter)
 
-TrainFaceSources = ['/home/olivier/Images/FaceShifter/celeba-256/', '/home/olivier/Images/FaceShifter/Perso/', '/home/olivier/Images/FaceShifter/VGGFaceTrain/', '/home/olivier/Images/FaceShifter/FFHQ/']
+TrainFaceSources = ['/home/olivier/Images/FaceShifter/celeba-256/', '/home/olivier/Images/FaceShifter/Perso/', '/home/olivier/Images/FaceShifter/VGGFaceTrain/', '/home/olivier/Images/FaceShifter/FFHQ/', '/home/olivier/Images/FaceShifter/Others/']
 train_dataset = FaceEmbed(TrainFaceSources, same_prob=0.2)
 
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
@@ -109,7 +112,8 @@ for niter in range(min_iter, max_iter):
     Xt = Xt.to(device)
     # embed = embed.to(device)
     with torch.no_grad():
-        embed, _ = arcface(F.interpolate(Xs[:, :, 19:237, 19:237], [112, 112], mode='bilinear', align_corners=True))
+        with autocast():
+            embed, _ = arcface(F.interpolate(Xs[:, :, 0:230, 13:243], [112, 112], mode='bilinear', align_corners=True))
     same_person = same_person.to(device)
     Xt.requires_grad = True
     embed.requires_grad = True
@@ -120,47 +124,56 @@ for niter in range(min_iter, max_iter):
     with autocast():
         Y, Xt_attr = G(Xt, embed)
 
-        Di = D(DiffAugment(Y, policy=policy))
+        Di = D(Y)
         L_adv = 0
 
         for di in Di:
             #L_adv += hinge_loss(di[0], True)
             L_adv -= di[0].mean()
-        L_adv /= len(Di)
+        L_adv *= C_adv / len(Di)
 
-        Y_aligned = Y[:, :, 19:237, 19:237]
+        Y_aligned = Y[:, :, 0:230, 13:243]
         ZY, _ = arcface(F.interpolate(Y_aligned, [112, 112], mode='bilinear', align_corners=True))
-        L_id =(1 - torch.cosine_similarity(embed, ZY, dim=1)).mean()
+        L_id =(1 - torch.cosine_similarity(embed, ZY, dim=1)).mean() * C_id
 
+    # Renew autocast to clear casted values cache?
+    with autocast():
         Y_attr = G.get_attr(Y)
         L_attr = 0
         for i in range(len(Xt_attr)):
             #L_attr += torch.mean(torch.pow(Xt_attr[i] - Y_attr[i], 2).reshape(batch_size, -1), dim=1).mean()
             L_attr += torch.mean(torch.pow(Xt_attr[i] - Y_attr[i], 2))
-        L_attr /= 2.0
+        L_attr *= C_attr / 2.0
 
         #L_rec = torch.sum(0.5 * torch.mean(torch.pow(Y - Xt, 2).reshape(batch_size, -1), dim=1) * same_person) / (same_person.sum() + 1e-6)
-        L_rec = MSE(Y[same_person], Xt[same_person]) * same_person.sum() /(2.0 * batch_size)
+        L_rec = MSE(Y[same_person], Xt[same_person]) * same_person.sum() * C_rec /(2.0 * batch_size)
 
-        lossG = 1*L_adv + 10*L_attr + 5*L_id + 10*L_rec
+        lossG = L_adv + L_attr + L_id + L_rec
 
     scaler.scale(lossG).backward()
     scaler.step(opt_G)
 
     # train D
+    if niter % 2: # Trying best of both world
+        Xr = Xt # Xt achieve better L_rec convergence
+    else:
+        Xr = Xs # Xs achieve better L_id convergence
+    Xr.requires_grad = True
     D.requires_grad_(True)
     opt_D.zero_grad()
     Xf = Y.detach()
-    Xs.requires_grad = True
     Xf.requires_grad = True
     with autocast():
-        fake_D = D(DiffAugment(Xf, policy=policy))
+        fake_D = D(Xf)
         loss_fake = 0
         for di in fake_D:
             loss_fake += hinge_loss(di[0], False)
         loss_fake /= len(fake_D)
 
-        true_D = D(DiffAugment(Xs, policy=policy))
+    # Renew autocast to clear casted values cache?
+    with autocast():
+        #true_D = D(DiffAugment(Xr, policy=policy))
+        true_D = D(Xr)
         loss_true = 0
         for di in true_D:
             loss_true += hinge_loss(di[0], True)
@@ -174,7 +187,7 @@ for niter in range(min_iter, max_iter):
     
     scaler.update()
     batch_time = time.time() - start_time
-    if iteration % show_step == 0:
+    if niter % show_step == 0:
         image = make_image(Xs, Xt, Y)
         writer.add_image('Train/Xs Xt Y', image[::-1, :, :], niter)
         writer.add_scalars('Train/Generator losses',
@@ -187,16 +200,16 @@ for niter in range(min_iter, max_iter):
     print(f'niter: {niter} (epoch: {epoch} {iteration}/{len(train_dataloader)})')
     print(f'    lossD: {lossD.item()} lossG: {lossG.item()} batch_time: {batch_time}s')
     print(f'    L_adv: {L_adv.item()} L_id: {L_id.item()} L_attr: {L_attr.item()} L_rec: {L_rec.item()}')
-    if iteration % 1000 == 0:
-        torch.save(G.state_dict(), './saved_models/G_latest.pth')
-        torch.save(D.state_dict(), './saved_models/D_latest.pth')
-        torch.save(opt_D.state_dict(), './saved_models/optG_latest.pth')
-        torch.save(opt_D.state_dict(), './saved_models/optD_latest.pth')
-        torch.save(scaler.state_dict(), './saved_models/scaler_latest.pth')
-        with open('./saved_models/niter.pkl', 'wb') as f:
+    if (niter + 1) % 1000 == 0:
+        torch.save(G.state_dict(), './saved_models/AEI_G_latest.pth')
+        torch.save(D.state_dict(), './saved_models/AEI_D_latest.pth')
+        torch.save(opt_D.state_dict(), './saved_models/AEI_optG_latest.pth')
+        torch.save(opt_D.state_dict(), './saved_models/AEI_optD_latest.pth')
+        torch.save(scaler.state_dict(), './saved_models/AEI_scaler_latest.pth')
+        with open('./saved_models/AEI_niter.pkl', 'wb') as f:
             pickle.dump(niter, f)
     if (niter + 1) % 10000 == 0:
-        torch.save(G.state_dict(), f'./saved_models/G_iteration_{niter + 1}.pth')
-        torch.save(D.state_dict(), f'./saved_models/D_iteration_{niter + 1}.pth')
-        with open(f'./saved_models/niter_{niter + 1}.pkl', 'wb') as f:
+        torch.save(G.state_dict(), f'./saved_models/AEI_G_iteration_{niter + 1}.pth')
+        torch.save(D.state_dict(), f'./saved_models/AEI_D_iteration_{niter + 1}.pth')
+        with open(f'./saved_models/AEI_niter_{niter + 1}.pkl', 'wb') as f:
             pickle.dump(niter, f)

@@ -20,7 +20,11 @@ img_root_dir = sys.argv[1]
 save_path = sys.argv[2]
 # embed_path = '/home/taotao/Downloads/celeb-aligned-256/embed.pkl'
 
-device = torch.device('cuda:0')
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
+
 mtcnn = MTCNN()
 
 model = Backbone(50, 0.6, 'ir_se').to(device)
@@ -46,7 +50,8 @@ for root, dirs, files in os.walk(img_root_dir):
             try:
                 p = os.path.join(root, name)
                 img = cv2.imread(p)[:, :, ::-1]
-                faces = mtcnn.align_multi(Image.fromarray(img), min_face_size=200, crop_size=(256, 256))
+                #faces = mtcnn.align_multi(Image.fromarray(img), min_face_size=200, crop_size=(256, 256))
+                faces = mtcnn.align_fully(Image.fromarray(img), min_face_size=200., crop_size=(256, 256), ori=[0, 1, 3, 2])
                 if len(faces) == 0:
                     continue
                 for face in faces:
