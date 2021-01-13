@@ -12,10 +12,28 @@ Made the following modifications:
 ## TODO
 Rework the dataset generation to keep FFHQ native images and to crop the others images using FFHQ algorithm (using landmarks) to preserve the whole chin and achieve better alignment.
 
-## Requirements installation using Conda
+## Installation using Conda
 ```
 conda create -n FaceShifter -c pytorch -c conda-forge 'pytorch>=1.6' torchvision tensorboard opencv cudnn
 conda activate FaceShifter
+git clone https://github.com/ocastan/FaceShifter
+cd FaceShifter
+```
+Go to https://github.com/TreB1eN/InsightFace_Pytorch and download `model_ir_se50.pth` to `face_modules` directory.
+## Prepare data
+Get face sources (you can look here https://github.com/mindslab-ai/faceshifter#preparing-data for datasets)
+```
+cd face_modules
+python preprocess_images.py unarchived_source_directory cropped_faces_destination_directory
+```
+Modify `train_face_sources` in `train_AEI.py` accordingly.
+## Train
+```
 python train_AEI.py
 ```
 You may reduce or increase the `batch_size` in `train_AEI.py` according to your graphic card memory.
+
+Monitor losses and generated images, running from another terminal:
+```
+tensorboard --logdir runs/
+```
